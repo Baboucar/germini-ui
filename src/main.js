@@ -1,89 +1,104 @@
-// src/main.js – GemMini UI using **Eternium** layout utilities only
-// – Run button now forced onto its own line
-// – Container stops growing at 1100 px (px1100) and is centred
-// – Strict Eternium class names from docs: https://vorticode.github.io/eternium/
+// src/main.js — GemMini UI (Eternium-only)
 
 import { r } from "solarite/dist/Solarite.js";
 
 const API = "https://gemmini-query.baboucarr-lab.workers.dev";
 
-const state = {
-  prompt: "",
-  sql: "",
-  rows: [],
-  error: "",
-  loading: false,
-  intro: true
+/* ─── reactive state ─────────────────────────────── */
+const state = { prompt:"", sql:"", rows:[], error:"", loading:false, intro:true };
+const set   = patch => { Object.assign(state, patch); render(); };
+
+/* ─── helpers ────────────────────────────────────── */
+const isImg      = key => /(?:img|image|_url)$/i.test(key);
+const placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48'%3E%3Crect width='48' height='48' fill='%23ddd'/%3E%3C/svg%3E";
+
+/** Strip everything after the first comma (fixes “cargo,abcd1234” URLs) */
+const cleanURL = url => {
+  if (typeof url !== "string") return placeholder;
+  const [head] = url.split(",");
+  return head || placeholder;
 };
 
-const set = patch => {
-  Object.assign(state, patch);
-  render();
-};
+function exportCSV () {
+  if (!state.rows.length) return;
+  const cols = Object.keys(state.rows[0]);
+  const csv  = [cols.join(","), ...state.rows.map(r => cols.map(c => JSON.stringify(r[c] ?? "")).join(","))].join("\n");
+  const url  = URL.createObjectURL(new Blob([csv], { type:"text/csv" }));
+  Object.assign(document.createElement("a"), { href:url, download:"gemmini-results.csv" }).click();
+  setTimeout(()=>URL.revokeObjectURL(url), 2_000);
+}
 
-/* ───────── actions ───────── */
-async function run() {
+async function run () {
   if (!state.prompt.trim() || state.loading) return;
-  set({ loading: true, error: "" });
+  set({ loading:true, error:"" });
 
   try {
     const res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: state.prompt })
+      method :"POST",
+      headers:{ "Content-Type":"application/json" },
+      body   :JSON.stringify({ prompt:state.prompt })
     });
     if (!res.ok) throw new Error(await res.text());
     const { sql, rows } = await res.json();
-    set({ sql, rows, loading: false, intro: false });
-  } catch (err) {
-    set({ error: err.message || "Unexpected error", sql: "", rows: [], loading: false });
+    set({ sql, rows, loading:false, intro:false });
+  } catch (e) {
+    set({ error:e.message || "Unexpected error", sql:"", rows:[], loading:false });
   }
 }
 
-function exportCSV() {
-  if (!state.rows.length) return;
-  const cols = Object.keys(state.rows[0]);
-  const csv = [cols.join(",")].concat(
-    state.rows.map(r => cols.map(c => JSON.stringify(r[c] ?? "")).join(","))
-  ).join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  const a = Object.assign(document.createElement("a"), { href: url, download: "query-result.csv" });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-/* ───────── render ───────── */
-function render() {
+/* ─── render ─────────────────────────────────────── */
+function render () {
   r(document.getElementById("app"))`
-    <section class="eternium col gap-big pad big pc75 pc75-mobile center-h">
-      <h1 class="text-4xl font-bold">GemMini&nbsp;Query</h1>
+    <section class="eternium col gap-big pad big center-h px1100 pc95-mobile">
+      <h1 class="bold big">GemMini Query</h1>
 
-      <!-- prompt + run (column) -->
-      <textarea rows="3" class="input big w-full" placeholder="Ask a question…"
-        value="${() => state.prompt}"
-        oninput=${e => set({ prompt: e.target.value })}></textarea>
+      <textarea rows="4" class="input big w-full"
+        placeholder="Ask a question…"
+        value="${()=>state.prompt}"
+        oninput=${e=>set({prompt:e.target.value})}></textarea>
 
-      <button class="button primary big w-full" onclick=${run} disabled="${() => state.loading}">
-        ${() => (state.loading ? "Running…" : "Run")}
+      <button class="button primary big w-full"
+        onclick=${run}
+        disabled="${()=>state.loading}">
+        ${()=>state.loading?"Running…":"Run"}
       </button>
 
-      <!-- helper banner -->
-      ${() => state.intro && !state.loading && !state.error && r`
-        <div class="info-alert w-full">Try queries like <code>total quantity per supplier</code> or <code>shipments from France</code>.</div>`}
+      ${()=>state.intro && !state.error && r`
+        <p class="info-alert w-full">
+          Try queries like <code>shipments from France last week</code> or
+          <code>total quantity per supplier</code>.
+        </p>`}
 
-      ${() => state.error && r`<div class="error-alert w-full">${state.error}</div>`}
+      ${()=>state.error && r`<p class="error-alert w-full">${state.error}</p>`}
 
-      ${() => state.sql && !state.error && r`<pre class="card pad-small w-full overflow-x-auto">${state.sql}</pre>`}
+      ${()=>state.sql && !state.error && r`
+        <pre class="card pad-small w-full overflow-x-auto">${state.sql}</pre>`}
 
-      ${() => state.rows.length && !state.error && r`
+      ${()=>state.rows.length && !state.error && r`
         <div class="row space-between center-v w-full">
           <span class="little muted">${state.rows.length} rows</span>
-          <button class="primary pad" onclick=${exportCSV}>Export&nbsp;CSV</button>
+          <button class="primary pad" onclick=${exportCSV}>Export CSV</button>
+          
         </div>
+         <div class="pad"></div>
+
         <div class="card overflow-x-auto w-full">
           <table class="data-table w-full text-small">
-            <thead><tr>${Object.keys(state.rows[0]).map(k => r`<th>${k}</th>`)}</tr></thead>
-            <tbody>${state.rows.map(row => r`<tr>${Object.values(row).map(v => r`<td>${v}</td>`)}</tr>`)}</tbody>
+            <thead>
+              <tr>${Object.keys(state.rows[0]).map(k=>r`<th>${k}</th>`)}</tr>
+            </thead>
+            <tbody>
+              ${state.rows.map(row => r`
+                <tr>
+                  ${Object.entries(row).map(([k,v]) => r`
+                    <td>
+                      ${isImg(k)
+                        ? r`<img src="${cleanURL(v)}"
+                                 style="height:48px;width:48px;object-fit:cover">`
+                        : v}
+                    </td>`)}
+                </tr>`)}
+            </tbody>
           </table>
         </div>`}
     </section>`;
